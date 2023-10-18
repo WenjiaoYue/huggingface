@@ -1,9 +1,7 @@
 import os
 import time
-import requests
-import numpy as np
 import gradio as gr
-import pydub
+from network import post_message
 
 NUM_MODELS = 2
 
@@ -15,30 +13,12 @@ class Model:
         self.audio_file = None
         self.record = None
         self.output_text = None
+        self.selected_audio = None
+        self.tab_audio = None
+        self.tab_record = None
 
-
-def extract_audio(file_path, sr, x, normalized=False):
-    """numpy array to wav"""
-    channels = 2 if (x.ndim == 2 and x.shape[1] == 2) else 1
-    if normalized:  # normalized array - each item should be a float in [-1, 1)
-        y = np.int16(x * 2**15)
-    else:
-        y = np.int16(x)
-    audio = pydub.AudioSegment(
-        y.tobytes(), frame_rate=sr, sample_width=2, channels=channels
-    )
-    audio.export(file_path, format="wav", bitrate="320k")
-
-
-def post_message(model, audio):
-    sr, x = audio
-    extract_audio(f"{model}.wav", sr, x)
-    with open(f"{model}.wav", "rb") as file:
-        r = requests.post(
-            "https://neuralstudio.eglb.intel.com/talkingbot/asr", files={"file": file}
-        )
-    response = r.text
-    return response
+    def switch(self, x):
+        self.selected_audio = x
 
 
 def audio2Text(model, audio):
@@ -70,10 +50,15 @@ with gr.Blocks() as demo:
                 for obj in model_object_list:
                     with gr.Group():
                         obj.input_text = gr.Textbox(label="model", value=[obj.model])
-                        with gr.Tab("file"):
+                        with gr.Tab("file") as obj.tab_audio:
                             obj.audio_file = gr.Audio()
-                        with gr.Tab("record"):
+                            obj.selected_audio = obj.audio_file  # for default
+                        with gr.Tab("record") as obj.tab_record:
                             obj.record = gr.Microphone()
+
+                        # check which tab is selected
+                        obj.tab_audio.select(obj.switch, inputs=[obj.audio_file])
+                        obj.tab_record.select(obj.switch, inputs=[obj.record])
 
             submit_btn = gr.Button(value="Submit")
 
@@ -85,15 +70,12 @@ with gr.Blocks() as demo:
     gr.Examples(
         [[i for i in audio_example]],
         sum([[obj.input_text, obj.audio_file] for obj in model_object_list], []),
-        [obj.output_text for obj in model_object_list],
-        audio2Text,
-        cache_examples=True,
     )
 
     for obj in model_object_list:
         submit_btn.click(
             audio2Text,
-            inputs=[obj.input_text, obj.audio_file],
+            inputs=[obj.input_text, obj.selected_audio],
             outputs=[obj.output_text],
         )
 
